@@ -54,97 +54,17 @@ async def websocket_ai(websocket: WebSocket):
         await websocket.close()
         return
         
-    # Default voice settings (for gTTS, these are limited)
-    voice_settings = {
-        "lang": "bn",  # Bengali
-        "slow": False
-    }
-    
     try:
         # Configure Gemini
         genai.configure(api_key=GEMINI_API_KEY)
         
-        # Use the default model (let the SDK choose)
-        try:
-            model = genai.GenerativeModel('gemini-pro')
-            # Test the model with a simple prompt
-            test_response = model.generate_content("Hello, test")
-            print("Successfully initialized gemini-pro model")
-        except Exception as e:
-            print(f"Failed to initialize gemini-pro model: {e}")
-            try:
-                # Fallback to gemini-1.0-pro-latest
-                model = genai.GenerativeModel('gemini-1.0-pro-latest')
-                test_response = model.generate_content("Hello, test")
-                print("Successfully initialized gemini-1.0-pro-latest model")
-            except Exception as e2:
-                print(f"Failed to initialize gemini-1.0-pro-latest model: {e2}")
-                # Try without specifying a model name
-                try:
-                    model = genai.GenerativeModel(model_name="models/gemini-pro")
-                    test_response = model.generate_content("Hello, test")
-                    print("Successfully initialized models/gemini-pro")
-                except Exception as e3:
-                    print(f"Failed to initialize models/gemini-pro: {e3}")
-                    await websocket.send_text("Error: Could not initialize any available Gemini model. Please check your API key and region settings.")
-                    await websocket.close()
-                    return
-        
-        # Initialize conversation history
-        conversation_history = [
-            {"role": "user", "parts": ["হ্যালো, আমি ডেন্টাল চেম্বারে কল করেছি।"]},
-            {"role": "model", "parts": ["হ্যালো! আমি ডেন্টাল চেম্বারের ভয়েস রেসেপশনিস্ট। আপনাকে কিভাবে সাহায্য করতে পারি?"]}
-        ]
+        # Use a simple, known working model
+        model = genai.GenerativeModel('gemini-pro')
         
         # Send initial AI response with audio
         initial_response = "হ্যালো! আমি ডেন্টাল চেম্বারের ভয়েস রেসেপশনিস্ট। আপনাকে কিভাবে সাহায্য করতে পারি?"
         await send_text_to_speech(websocket, initial_response)
         print("Initial response sent")
-        
-        async def process_user_message(message_text):
-            """Process user message and generate AI response"""
-            try:
-                # Check if this is a voice settings command
-                if message_text.startswith("/voice"):
-                    parts = message_text.split()
-                    if len(parts) >= 3:
-                        setting = parts[1]
-                        value = parts[2]
-                        if setting == "speed":
-                            voice_settings["slow"] = (value.lower() == "slow")
-                            await websocket.send_text(f"Speech speed changed to {value}")
-                    return
-                
-                # Add user message to conversation history
-                conversation_history.append({"role": "user", "parts": [message_text]})
-                
-                # Generate response using Gemini with error handling
-                try:
-                    response = model.generate_content(conversation_history)
-                except Exception as generate_error:
-                    print(f"Error generating content: {generate_error}")
-                    # Try with a simpler prompt structure
-                    prompt_text = f"{SYSTEM_PROMPT}\n\nUser said: {message_text}\n\nPlease respond in Bengali."
-                    response = model.generate_content(prompt_text)
-                
-                # Add AI response to conversation history
-                conversation_history.append({"role": "model", "parts": [response.text]})
-                
-                # Send response back to client as audio
-                await send_text_to_speech(websocket, response.text)
-                print(f"AI response sent: {response.text}")
-                
-                # Check if response contains JSON summary data
-                parsed = safe_parse_json_block(response.text)
-                if parsed:
-                    await websocket.send_json({
-                        "type": "ai_summary",
-                        "data": parsed
-                    })
-                    
-            except Exception as e:
-                print(f"Error processing user message: {e}")
-                await websocket.send_text(f"Error processing message: {str(e)}")
         
         # Listen for messages from the client
         while True:
@@ -152,14 +72,28 @@ async def websocket_ai(websocket: WebSocket):
                 data = await websocket.receive_text()
                 print(f"Received message from client: {data}")
                 
-                # Process the user message
-                await process_user_message(data)
+                # Simple response for testing
+                if "test" in data.lower():
+                    response_text = "This is a test response from the AI."
+                else:
+                    # Generate response using Gemini
+                    try:
+                        response = model.generate_content(f"Respond in Bengali: {data}")
+                        response_text = response.text
+                    except Exception as e:
+                        print(f"Error generating content: {e}")
+                        response_text = "দুঃখিত, আমি এই মুহূর্তে সাড়া দিতে পারছি না। অনুগ্রহ করে আবার চেষ্টা করুন।"
+                
+                # Send response back to client as audio
+                await send_text_to_speech(websocket, response_text)
+                print(f"AI response sent: {response_text}")
                 
             except WebSocketDisconnect:
                 print("WebSocket disconnected by client")
                 break
             except Exception as e:
                 print(f"Error receiving from WebSocket: {e}")
+                await websocket.send_text(f"Error: {str(e)}")
                 break
                 
     except Exception as e:
