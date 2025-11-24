@@ -113,9 +113,9 @@ async def voice(request: Request):
         language="bn-BD"
     )
     
-    # Play welcome message with faster speech
+    # Play welcome message with a nicer, younger female voice
     gather.say("হ্যালো! আমি ডেন্টাল চেম্বারের ভয়েস রেসেপশনিস্ট। আপনাকে কিভাবে সাহায্য করতে পারি?", 
-               language="bn-BD", voice="Polly.Odia Female", rate="fast")
+               language="bn-BD", voice="Polly.Aditi", rate="fast")
     
     # If no input received, redirect to voicemail
     resp.redirect("/api/voicemail", method="GET")
@@ -141,7 +141,7 @@ async def process_speech(request: Request):
     
     if not speech_result:
         resp.say("দুঃখিত, আমি আপনার কথা বুঝতে পারিনি। আবার চেষ্টা করুন।", 
-                 language="bn-BD", voice="Polly.Odia Female", rate="medium")
+                 language="bn-BD", voice="Polly.Aditi", rate="medium")
         resp.redirect("/api/voice", method="POST")
         return resp
     
@@ -188,8 +188,8 @@ async def process_speech(request: Request):
         except Exception as e:
             print(f"Error parsing appointment data: {e}")
         
-        # Play AI response with faster speech
-        resp.say(ai_response, language="bn-BD", voice="Polly.Odia Female", rate="fast")
+        # Play AI response with a nicer, younger female voice
+        resp.say(ai_response, language="bn-BD", voice="Polly.Aditi", rate="fast")
         
         # Continue conversation
         gather = resp.gather(
@@ -199,12 +199,12 @@ async def process_speech(request: Request):
             timeout=3,
             language="bn-BD"
         )
-        gather.say("আর কিছু জানতে চান?", language="bn-BD", voice="Polly.Odia Female", rate="medium")
+        gather.say("আর কিছু জানতে চান?", language="bn-BD", voice="Polly.Aditi", rate="medium")
         
     except Exception as e:
         print(f"Error processing speech: {e}")
         resp.say("দুঃখিত, কিছু সমস্যা হয়েছে। আমরা খুব শীঘ্রই এটি ঠিক করার চেষ্টা করব।", 
-                 language="bn-BD", voice="Polly.Odia Female", rate="medium")
+                 language="bn-BD", voice="Polly.Aditi", rate="medium")
     
     return resp
 
@@ -220,6 +220,6 @@ async def voicemail():
         return resp
     
     resp.say("আপনার কলটি পাওয়া যায়নি। দয়া করে পরে আবার চেষ্টা করুন।", 
-             language="bn-BD", voice="Polly.Odia Female", rate="medium")
+             language="bn-BD", voice="Polly.Aditi", rate="medium")
     resp.hangup()
     return resp

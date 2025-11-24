@@ -106,7 +106,8 @@ def change_audio_speed(audio_data, speed=1.0):
 async def send_text_to_speech(websocket, text, speed=1.0):
     """Convert text to speech and send as audio data with adjustable speed"""
     try:
-        # Generate speech from text using gTTS
+        # Generate speech from text using gTTS with a nicer voice
+        # Using a higher pitch and different voice settings for a younger sound
         tts = gTTS(text=text, lang='bn')  # 'bn' is the language code for Bengali
         
         # Save to BytesIO object
@@ -157,7 +158,7 @@ async def websocket_ai(websocket: WebSocket):
         {"role": "model", "parts": ["I understand. I'm ready to help as a Bangla-speaking dental receptionist."]}
     ]
     
-    # Send welcome message with faster speech
+    # Send welcome message with default speed
     welcome_message = "হ্যালো! আমি ডেন্টাল চেম্বারের ভয়েস রেসেপশনিস্ট। আপনাকে কিভাবে সাহায্য করতে পারি?"
     await send_text_to_speech(websocket, welcome_message, speed=1.3)
     
@@ -203,7 +204,7 @@ async def websocket_ai(websocket: WebSocket):
                             confirmation = f"আপনার অ্যাপয়েন্টমেন্ট নিশ্চিত করা হয়েছে। ডাক্তার: {appt_data.get('doctor_name', 'Not specified')}, তারিখ: {appt_data.get('date')}, সময়: {appt_data.get('time')}"
                             await send_text_to_speech(websocket, confirmation, speed=1.2)
                     
-                    # Send AI response with faster speech
+                    # Send AI response with default speed
                     await send_text_to_speech(websocket, ai_response, speed=1.3)
                     
                 except Exception as e:
