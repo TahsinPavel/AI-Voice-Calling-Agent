@@ -64,8 +64,8 @@ async def websocket_ai(websocket: WebSocket):
         # Configure Gemini
         genai.configure(api_key=GEMINI_API_KEY)
         
-        # Set up the model (using a model that's known to work)
-        model = genai.GenerativeModel('gemini-pro')
+        # Set up the model (using gemini-1.0-pro which is more widely available)
+        model = genai.GenerativeModel('gemini-1.0-pro')
         
         # Initialize conversation history
         conversation_history = [

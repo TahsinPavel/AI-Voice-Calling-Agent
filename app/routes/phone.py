@@ -23,9 +23,9 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 # Initialize Twilio client
 twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 
-# Initialize Gemini
+# Initialize Gemini with a more widely available model
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-pro')
+model = genai.GenerativeModel('gemini-1.0-pro')
 
 router = APIRouter()
 
