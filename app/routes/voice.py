@@ -68,6 +68,20 @@ def format_doctor_info(doctors):
         doctor_info += f"- {doctor.name}: {doctor.specialty}\n"
     return doctor_info
 
+def get_doctor_info_json(doctors):
+    """Get doctor information as JSON for frontend"""
+    if not doctors:
+        return "[]"
+    
+    doctor_list = []
+    for doctor in doctors:
+        doctor_list.append({
+            "name": doctor.name,
+            "specialty": doctor.specialty
+        })
+    
+    return json.dumps(doctor_list)
+
 async def send_text_to_speech(websocket, text):
     """Convert text to speech and send as audio data"""
     try:
@@ -107,6 +121,7 @@ async def websocket_ai(websocket: WebSocket):
     # Get doctor information
     doctors = get_doctor_list()
     doctor_info = format_doctor_info(doctors)
+    doctor_info_json = get_doctor_info_json(doctors)
     
     # Update the system prompt with current doctor information
     enhanced_system_prompt = SYSTEM_PROMPT + f"\n\nCurrent Doctor Information:\n{doctor_info}"
@@ -120,6 +135,9 @@ async def websocket_ai(websocket: WebSocket):
     # Send welcome message
     welcome_message = "হ্যালো! আমি ডেন্টাল চেম্বারের ভয়েস রেসেপশনিস্ট। আপনাকে কিভাবে সাহায্য করতে পারি?"
     await send_text_to_speech(websocket, welcome_message)
+    
+    # Send doctor information to frontend
+    await websocket.send_text(f"DOCTORS: {doctor_info_json}")
     
     try:
         while True:

@@ -1,20 +1,193 @@
 <!doctype html>
-
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Bangla AI Receptionist — Test</title>
+  <title>Bangla AI Receptionist</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      color: #333;
+    }
+    
+    .container {
+      background: white;
+      border-radius: 15px;
+      padding: 30px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+      margin-top: 20px;
+    }
+    
+    h1 {
+      text-align: center;
+      color: #4a5568;
+      margin-bottom: 30px;
+      font-size: 2.5em;
+    }
+    
+    h2 {
+      color: #2d3748;
+      border-bottom: 2px solid #e2e8f0;
+      padding-bottom: 10px;
+      margin-top: 30px;
+    }
+    
+    .controls {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    
+    button {
+      background: linear-gradient(to right, #4299e1, #3182ce);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: 600;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+    }
+    
+    button:disabled {
+      background: #a0aec0;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+    
+    .message-input {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    
+    #messageInput {
+      flex: 1;
+      padding: 12px 15px;
+      border: 2px solid #e2e8f0;
+      border-radius: 8px;
+      font-size: 16px;
+      transition: border-color 0.3s ease;
+    }
+    
+    #messageInput:focus {
+      outline: none;
+      border-color: #4299e1;
+    }
+    
+    #log {
+      background: #f7fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 15px;
+      height: 200px;
+      overflow-y: auto;
+      font-family: monospace;
+      white-space: pre-wrap;
+      margin: 20px 0;
+    }
+    
+    #player {
+      width: 100%;
+      margin-top: 15px;
+      border-radius: 8px;
+    }
+    
+    .status {
+      padding: 10px;
+      border-radius: 8px;
+      margin: 10px 0;
+      text-align: center;
+      font-weight: 500;
+    }
+    
+    .connected {
+      background: #c6f6d5;
+      color: #22543d;
+      border: 1px solid #9ae6b4;
+    }
+    
+    .disconnected {
+      background: #fed7d7;
+      color: #742a2a;
+      border: 1px solid #fcbcbcbc;
+    }
+    
+    .doctor-list {
+      background: #f0f4f8;
+      border-radius: 8px;
+      padding: 15px;
+      margin: 15px 0;
+    }
+    
+    .doctor-item {
+      padding: 10px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    
+    .doctor-item:last-child {
+      border-bottom: none;
+    }
+    
+    .doctor-name {
+      font-weight: bold;
+      color: #2b6cb0;
+    }
+    
+    .doctor-specialty {
+      color: #4a5568;
+      font-style: italic;
+    }
+    
+    .loading {
+      text-align: center;
+      color: #718096;
+      font-style: italic;
+    }
+  </style>
 </head>
 <body>
-  <h2>Bangla AI Receptionist — Test UI</h2>
-  <button id="start">Start</button>
-  <button id="stop" disabled>Stop</button>
-  <div>
-    <input type="text" id="messageInput" placeholder="Type your message here..." />
-    <button id="sendMessage">Send Message</button>
+  <div class="container">
+    <h1>🦷 Bangla AI Receptionist</h1>
+    
+    <div class="controls">
+      <button id="start">🎙️ Start Connection</button>
+      <button id="stop" disabled>⏹️ Stop Connection</button>
+    </div>
+    
+    <div class="message-input">
+      <input type="text" id="messageInput" placeholder="Type your message here... (e.g. 'I want to book an appointment with Dr. Firoz')" />
+      <button id="sendMessage">📤 Send Message</button>
+    </div>
+    
+    <div id="connectionStatus" class="status disconnected">
+      🔌 Disconnected - Click "Start Connection" to begin
+    </div>
+    
+    <h2>💬 Conversation Log</h2>
+    <div id="log">Welcome to the Bangla AI Receptionist system!</div>
+    
+    <h2>🎧 Audio Player</h2>
+    <audio id="player" controls></audio>
+    
+    <h2>👨‍⚕️ Available Doctors</h2>
+    <div id="doctorList" class="doctor-list">
+      <div class="loading">Loading doctor information...</div>
+    </div>
   </div>
-  <div id="log"></div>
-  <audio id="player" controls></audio>
 
 <script src="config.js"></script>
 <script>
@@ -24,7 +197,43 @@ const WEBSOCKET_URL = window.WEBSOCKET_URL ||
     ? `wss://${window.location.host}/ws/ai` 
     : `ws://${window.location.host}/ws/ai`);
 
-const log = (m) => document.getElementById('log').innerText += '\n' + m;
+const log = (m) => {
+  const logElement = document.getElementById('log');
+  logElement.innerText += '\n' + m;
+  logElement.scrollTop = logElement.scrollHeight;
+};
+
+const updateStatus = (connected) => {
+  const statusElement = document.getElementById('connectionStatus');
+  if (connected) {
+    statusElement.className = 'status connected';
+    statusElement.innerHTML = '✅ Connected - Ready for conversation';
+  } else {
+    statusElement.className = 'status disconnected';
+    statusElement.innerHTML = '❌ Disconnected - Click "Start Connection" to begin';
+  }
+};
+
+const updateDoctorList = (doctors) => {
+  const doctorListElement = document.getElementById('doctorList');
+  
+  if (!doctors || doctors.length === 0) {
+    doctorListElement.innerHTML = '<div class="loading">No doctors available at the moment.</div>';
+    return;
+  }
+  
+  let doctorHTML = '';
+  doctors.forEach(doctor => {
+    doctorHTML += `
+      <div class="doctor-item">
+        <span class="doctor-name">${doctor.name}</span> - <span class="doctor-specialty">${doctor.specialty}</span>
+      </div>
+    `;
+  });
+  
+  doctorListElement.innerHTML = doctorHTML;
+};
+
 let ws;
 let audioContext;
 let audioQueue = [];
@@ -39,14 +248,15 @@ document.getElementById('start').onclick = async () => {
   ws = new WebSocket(wsUrl);
   
   ws.onopen = () => {
-    log("WebSocket connected");
+    log("WebSocket connected successfully");
+    updateStatus(true);
     document.getElementById('start').disabled = true;
     document.getElementById('stop').disabled = false;
   };
   
   ws.onmessage = async (event) => {
     if (event.data instanceof Blob) {
-      log("Received audio data");
+      log("Received audio response from AI");
       // Handle audio data
       const arrayBuffer = await event.data.arrayBuffer();
       const audioBlob = new Blob([arrayBuffer], { type: 'audio/mp3' });
@@ -54,22 +264,35 @@ document.getElementById('start').onclick = async () => {
       
       const player = document.getElementById('player');
       player.src = audioUrl;
-      player.play();
+      player.play().catch(e => log("Error playing audio: " + e.message));
     } else {
-      log("Message: " + event.data);
       // Handle text messages
-      if (event.data.startsWith("AI: ")) {
-        log("Playing AI response");
+      if (event.data.startsWith("DOCTORS: ")) {
+        try {
+          const doctorsJson = event.data.substring(9);
+          const doctors = JSON.parse(doctorsJson);
+          updateDoctorList(doctors);
+          log(`Loaded ${doctors.length} doctors from database`);
+        } catch (e) {
+          log("Error parsing doctor information: " + e.message);
+        }
+      } else if (event.data.startsWith("AI: ")) {
+        log(event.data);
+        log("🔊 Playing AI response");
+      } else {
+        log("Message: " + event.data);
       }
     }
   };
   
   ws.onerror = (error) => {
     log("WebSocket error: " + error);
+    updateStatus(false);
   };
   
   ws.onclose = () => {
     log("WebSocket connection closed");
+    updateStatus(false);
     document.getElementById('start').disabled = false;
     document.getElementById('stop').disabled = true;
   };
@@ -79,6 +302,7 @@ document.getElementById('stop').onclick = () => {
   if (ws) {
     ws.close();
   }
+  updateStatus(false);
   document.getElementById('start').disabled = false;
   document.getElementById('stop').disabled = true;
 };
@@ -90,8 +314,17 @@ document.getElementById('sendMessage').onclick = () => {
     ws.send("User: " + message);
     log("Sent: " + message);
     messageInput.value = "";
+  } else if (!ws || ws.readyState !== WebSocket.OPEN) {
+    log("Error: Not connected to WebSocket");
   }
 };
+
+// Allow sending message with Enter key
+document.getElementById('messageInput').addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') {
+    document.getElementById('sendMessage').click();
+  }
+});
 </script>
 </body>
 </html>
