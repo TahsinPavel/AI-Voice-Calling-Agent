@@ -7,3 +7,4 @@ gTTS>=2.5.4
 twilio>=8.8.0
 python-multipart>=0.0.6
 aiofiles>=23.1.0
+pydub>=0.25.1

@@ -7,6 +7,7 @@ import time
 from dotenv import load_dotenv
 import google.generativeai as genai
 from gtts import gTTS
+from pydub import AudioSegment
 from app.utils.ai_prompt import SYSTEM_PROMPT
 from app.utils.helpers import safe_parse_json_block
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -82,8 +83,28 @@ def get_doctor_info_json(doctors):
     
     return json.dumps(doctor_list)
 
-async def send_text_to_speech(websocket, text):
-    """Convert text to speech and send as audio data"""
+def change_audio_speed(audio_data, speed=1.0):
+    """Change the speed of audio data"""
+    try:
+        # Load audio from bytes
+        audio = AudioSegment.from_mp3(io.BytesIO(audio_data))
+        
+        # Change speed by adjusting frame rate
+        # Higher frame rate = faster playback
+        new_sample_rate = int(audio.frame_rate * speed)
+        audio_fast = audio._spawn(audio.raw_data, overrides={"frame_rate": new_sample_rate})
+        audio_fast = audio_fast.set_frame_rate(audio.frame_rate)
+        
+        # Convert back to bytes
+        buffer = io.BytesIO()
+        audio_fast.export(buffer, format="mp3")
+        return buffer.getvalue()
+    except Exception as e:
+        print(f"Error changing audio speed: {e}")
+        return audio_data  # Return original if error
+
+async def send_text_to_speech(websocket, text, speed=1.0):
+    """Convert text to speech and send as audio data with adjustable speed"""
     try:
         # Generate speech from text using gTTS
         tts = gTTS(text=text, lang='bn')  # 'bn' is the language code for Bengali
@@ -95,6 +116,10 @@ async def send_text_to_speech(websocket, text):
         
         # Read the audio data
         audio_data = audio_buffer.read()
+        
+        # Change speed if needed
+        if speed != 1.0:
+            audio_data = change_audio_speed(audio_data, speed)
         
         # Send the audio data to the client
         await websocket.send_bytes(audio_data)
@@ -132,9 +157,9 @@ async def websocket_ai(websocket: WebSocket):
         {"role": "model", "parts": ["I understand. I'm ready to help as a Bangla-speaking dental receptionist."]}
     ]
     
-    # Send welcome message
+    # Send welcome message with faster speech
     welcome_message = "হ্যালো! আমি ডেন্টাল চেম্বারের ভয়েস রেসেপশনিস্ট। আপনাকে কিভাবে সাহায্য করতে পারি?"
-    await send_text_to_speech(websocket, welcome_message)
+    await send_text_to_speech(websocket, welcome_message, speed=1.3)
     
     # Send doctor information to frontend
     await websocket.send_text(f"DOCTORS: {doctor_info_json}")
@@ -172,21 +197,21 @@ async def websocket_ai(websocket: WebSocket):
                     appointment_data = safe_parse_json_block(ai_response)
                     
                     if appointment_data and "appointment_data" in appointment_data:
-                        # Send appointment confirmation
+                        # Send appointment confirmation with normal speed
                         appt_data = appointment_data["appointment_data"]
                         if appt_data:
                             confirmation = f"আপনার অ্যাপয়েন্টমেন্ট নিশ্চিত করা হয়েছে। ডাক্তার: {appt_data.get('doctor_name', 'Not specified')}, তারিখ: {appt_data.get('date')}, সময়: {appt_data.get('time')}"
-                            await send_text_to_speech(websocket, confirmation)
+                            await send_text_to_speech(websocket, confirmation, speed=1.2)
                     
-                    # Send AI response
-                    await send_text_to_speech(websocket, ai_response)
+                    # Send AI response with faster speech
+                    await send_text_to_speech(websocket, ai_response, speed=1.3)
                     
                 except Exception as e:
                     error_msg = f"Error processing message: {str(e)}"
                     print(error_msg)
                     await websocket.send_text(error_msg)
-                    # Send error message to user
-                    await send_text_to_speech(websocket, "দুঃখিত, আমি এই মুহূর্তে সাহায্য করতে পারছি না। দয়া করে পুনরায় চেষ্টা করুন।")
+                    # Send error message to user with normal speed
+                    await send_text_to_speech(websocket, "দুঃখিত, আমি এই মুহূর্তে সাহায্য করতে পারছি না। দয়া করে পুনরায় চেষ্টা করুন।", speed=1.0)
             
     except WebSocketDisconnect:
         print("WebSocket connection closed")
