@@ -1,12 +1,14 @@
 import os
 import re
+import json
+import time
 from dotenv import load_dotenv
 from fastapi import APIRouter, Request
 from twilio.twiml.voice_response import VoiceResponse
 from twilio.rest import Client
 import google.generativeai as genai
 from app.utils.ai_prompt import SYSTEM_PROMPT
-from app.models import Appointment
+from app.models import Appointment, Doctor
 from app.db import get_session
 from sqlmodel import select
 
@@ -21,215 +23,203 @@ TWILIO_PHONE_NUMBER = os.environ.get("TWILIO_PHONE_NUMBER")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 # Initialize Twilio client
-twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN:
+    twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+else:
+    twilio_client = None
+    print("Twilio credentials not found. Phone functionality will be disabled.")
 
 # Configure Gemini with error handling
-genai.configure(api_key=GEMINI_API_KEY)
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+else:
+    print("Gemini API key not found. AI functionality will be disabled.")
 
-# Use the default model (let the SDK choose)
-try:
-    model = genai.GenerativeModel('gemini-pro')
-    # Test the model with a simple prompt
-    test_response = model.generate_content("Hello, test")
-    print("Successfully initialized gemini-pro model for phone route")
-except Exception as e:
-    print(f"Failed to initialize gemini-pro model for phone route: {e}")
-    try:
-        # Fallback to gemini-1.0-pro-latest
-        model = genai.GenerativeModel('gemini-1.0-pro-latest')
-        test_response = model.generate_content("Hello, test")
-        print("Successfully initialized gemini-1.0-pro-latest model for phone route")
-    except Exception as e2:
-        print(f"Failed to initialize gemini-1.0-pro-latest model for phone route: {e2}")
-        # Try without specifying a model name
+# Try different models in order of preference
+model_names = ['gemini-2.0-flash', 'models/gemini-2.0-flash', 'gemini-flash-latest', 'models/gemini-flash-latest', 'gemini-pro-latest', 'models/gemini-pro-latest']
+model = None
+
+if GEMINI_API_KEY:
+    for model_name in model_names:
         try:
-            model = genai.GenerativeModel(model_name="models/gemini-pro")
-            test_response = model.generate_content("Hello, test")
-            print("Successfully initialized models/gemini-pro for phone route")
-        except Exception as e3:
-            print(f"Failed to initialize models/gemini-pro for phone route: {e3}")
-            model = None
-            print("Warning: Could not initialize any available Gemini model for phone route")
+            model = genai.GenerativeModel(model_name)
+            # Test the model with a simple prompt
+            test_response = model.generate_content("Hello, this is a test.")
+            print(f"Gemini model {model_name} initialized successfully")
+            break
+        except Exception as e:
+            print(f"Error initializing Gemini model {model_name}: {e}")
+            continue
+
+    if not model:
+        print("Failed to initialize any Gemini model")
+else:
+    print("Skipping Gemini model initialization due to missing API key")
 
 router = APIRouter()
 
-# Store active calls
-active_calls = {}
+def get_doctor_list():
+    """Get list of doctors from database"""
+    try:
+        with get_session() as session:
+            doctors = session.exec(select(Doctor)).all()
+            return doctors
+    except Exception as e:
+        print(f"Error fetching doctors: {e}")
+        return []
+
+def format_doctor_info(doctors):
+    """Format doctor information for the AI prompt"""
+    if not doctors:
+        return "No doctors available at the moment."
+    
+    doctor_info = "Available Doctors:\n"
+    for doctor in doctors:
+        doctor_info += f"- {doctor.name}: {doctor.specialty}\n"
+    return doctor_info
 
 @router.post("/voice")
 async def voice(request: Request):
     """Handle incoming voice calls"""
+    # Get call details from Twilio
     form_data = await request.form()
-    call_sid = form_data.get("CallSid")
-    from_number = form_data.get("From")
+    from_number = form_data.get("From", "")
+    call_sid = form_data.get("CallSid", "")
     
     print(f"Incoming call from {from_number} with CallSid {call_sid}")
     
     # Create TwiML response
-    response = VoiceResponse()
+    resp = VoiceResponse()
     
-    # Greet the caller
-    response.say("হ্যালো! আমি ডেন্টাল চেম্বারের ভয়েস রেসেপশনিস্ট। আপনাকে কিভাবে সাহায্য করতে পারি?", language="bn-BD")
+    # Check if Twilio is configured
+    if not twilio_client:
+        resp.say("দুঃখিত, ফোন সার্ভিস এই মুহূর্তে উপলব্ধ নয়।", language="bn-BD", voice="Polly.Odia Female")
+        resp.hangup()
+        return resp
     
-    # Gather user input
-    gather = response.gather(
+    # Get doctor information
+    doctors = get_doctor_list()
+    doctor_info = format_doctor_info(doctors)
+    
+    # Update the system prompt with current doctor information
+    enhanced_system_prompt = SYSTEM_PROMPT + f"\n\nCurrent Doctor Information:\n{doctor_info}"
+    
+    # Gather input from caller with a longer timeout
+    gather = resp.gather(
         input="speech",
-        language="bn-BD",
         action="/api/process_speech",
         method="POST",
-        timeout=5
+        timeout=3,
+        language="bn-BD"
     )
     
-    # If no input, redirect to gather again
-    response.redirect("/api/voice")
+    # Play welcome message
+    gather.say("হ্যালো! আমি ডেন্টাল চেম্বারের ভয়েস রেসেপশনিস্ট। আপনাকে কিভাবে সাহায্য করতে পারি?", 
+               language="bn-BD", voice="Polly.Odia Female")
     
-    return str(response)
+    # If no input received, redirect to voicemail
+    resp.redirect("/api/voicemail", method="GET")
+    
+    return resp
 
 @router.post("/process_speech")
 async def process_speech(request: Request):
     """Process speech input from caller"""
     form_data = await request.form()
-    call_sid = form_data.get("CallSid")
-    from_number = form_data.get("From")
     speech_result = form_data.get("SpeechResult", "")
+    from_number = form_data.get("From", "")
     
-    print(f"Speech input from {from_number}: {speech_result}")
+    print(f"Speech result: {speech_result}")
     
-    # Create TwiML response
-    response = VoiceResponse()
+    resp = VoiceResponse()
     
-    # Check if model is available
-    if model is None:
-        response.say("দুঃখিত, সিস্টেমে কিছু সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।", language="bn-BD")
-        return str(response)
+    # Check if Twilio is configured
+    if not twilio_client:
+        resp.say("দুঃখিত, ফোন সার্ভিস এই মুহূর্তে উপলব্ধ নয়।", language="bn-BD", voice="Polly.Odia Female")
+        resp.hangup()
+        return resp
+    
+    if not speech_result:
+        resp.say("দুঃখিত, আমি আপনার কথা বুঝতে পারিনি। আবার চেষ্টা করুন।", 
+                 language="bn-BD", voice="Polly.Odia Female")
+        resp.redirect("/api/voice", method="POST")
+        return resp
+    
+    # Get doctor information
+    doctors = get_doctor_list()
+    doctor_info = format_doctor_info(doctors)
+    
+    # Update the system prompt with current doctor information
+    enhanced_system_prompt = SYSTEM_PROMPT + f"\n\nCurrent Doctor Information:\n{doctor_info}"
     
     try:
-        # Process the user's request using Gemini with error handling
-        prompt = f"{SYSTEM_PROMPT}\n\nUser said: {speech_result}\n\nPlease respond in Bengali and help the user with their request. If this is an appointment request, extract the relevant details."
+        # Process the speech with Gemini AI
+        full_prompt = f"{enhanced_system_prompt}\n\nCaller said: {speech_result}\n\nRespond appropriately in Bangla."
         
-        try:
-            gemini_response = model.generate_content(prompt)
-        except Exception as generate_error:
-            print(f"Error generating content: {generate_error}")
-            # Try with a simpler prompt structure
-            simple_prompt = f"User said: {speech_result}\n\nPlease respond in Bengali."
-            gemini_response = model.generate_content(simple_prompt)
-        
-        # Check if this is an appointment request
-        if any(keyword in speech_result.lower() for keyword in ["appointment", "booking", "book", "schedule", "অ্যাপয়েন্টমেন্ট", "বুক", "বুকিং"]):
-            # Extract appointment details using Gemini
-            appointment_details = extract_appointment_details_with_ai(speech_result)
-            if appointment_details and appointment_details.get("patient_name") and appointment_details.get("date") and appointment_details.get("time"):
-                # Book the appointment
-                appointment = book_appointment(appointment_details)
-                response.say(f"আপনার অ্যাপয়েন্টমেন্ট বুক করা হয়েছে। রোগীর নাম: {appointment.patient_name}, তারিখ: {appointment.date}, সময়: {appointment.time}। ধন্যবাদ!", language="bn-BD")
-            else:
-                # Ask for missing details
-                missing_info = []
-                if not appointment_details.get("patient_name"):
-                    missing_info.append("নাম")
-                if not appointment_details.get("date"):
-                    missing_info.append("তারিখ")
-                if not appointment_details.get("time"):
-                    missing_info.append("সময়")
-                
-                response.say(f"দুঃখিত, আমি আপনার অ্যাপয়েন্টমেন্টের বিস্তারিত বুঝতে পারিনি। অনুগ্রহ করে আপনার {', '.join(missing_info)} শেয়ার করুন।", language="bn-BD")
-                
-                # Gather more information
-                gather = response.gather(
-                    input="speech",
-                    language="bn-BD",
-                    action="/api/process_speech",
-                    method="POST",
-                    timeout=5
-                )
+        if model:
+            # Add a small delay to help with rate limiting
+            time.sleep(1)
+            response = model.generate_content(full_prompt)
+            ai_response = response.text
         else:
-            # General response
-            response.say(gemini_response.text, language="bn-BD")
+            # Fallback response if model is not available
+            ai_response = "দুঃখিত, আমি এই মুহূর্তে সাহায্য করতে পারছি না। দয়া করে পুনরায় চেষ্টা করুন।"
         
-        # Continue the conversation
-        gather = response.gather(
+        print(f"AI Response: {ai_response}")
+        
+        # Parse JSON from AI response if present
+        appointment_data = None
+        try:
+            # Extract JSON from the response
+            json_match = re.search(r'\{[^}]+\}', ai_response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group()
+                parsed_data = json.loads(json_str)
+                appointment_data = parsed_data.get("appointment_data")
+                
+                # Save appointment if data is present
+                if appointment_data and isinstance(appointment_data, dict):
+                    with get_session() as session:
+                        appointment = Appointment(**appointment_data)
+                        session.add(appointment)
+                        session.commit()
+                        session.refresh(appointment)
+                    print(f"Appointment booked: {appointment_data}")
+        except Exception as e:
+            print(f"Error parsing appointment data: {e}")
+        
+        # Play AI response
+        resp.say(ai_response, language="bn-BD", voice="Polly.Odia Female")
+        
+        # Continue conversation
+        gather = resp.gather(
             input="speech",
-            language="bn-BD",
             action="/api/process_speech",
             method="POST",
-            timeout=5
+            timeout=3,
+            language="bn-BD"
         )
-        
-        # If no input, end the call
-        response.say("ধন্যবাদ আপনার জন্য। আবার কল করুন!", language="bn-BD")
-        response.hangup()
+        gather.say("আর কিছু জানতে চান?", language="bn-BD", voice="Polly.Odia Female")
         
     except Exception as e:
         print(f"Error processing speech: {e}")
-        response.say("দুঃখিত, কিছু সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।", language="bn-BD")
+        resp.say("দুঃখিত, কিছু সমস্যা হয়েছে। আমরা খুব শীঘ্রই এটি ঠিক করার চেষ্টা করব।", 
+                 language="bn-BD", voice="Polly.Odia Female")
     
-    return str(response)
+    return resp
 
-def extract_appointment_details_with_ai(text):
-    """Extract appointment details using AI"""
-    try:
-        # Check if model is available
-        if model is None:
-            return {}
-            
-        prompt = f"""
-        Extract the following information from the user's request:
-        - Patient name
-        - Phone number
-        - Date (in YYYY-MM-DD format)
-        - Time (in HH:MM format)
-        - Purpose of visit
-        - Urgency level (low, medium, or high)
-        
-        User request: {text}
-        
-        Return the information in JSON format with these exact keys:
-        {{
-            "patient_name": "...",
-            "phone": "...",
-            "date": "YYYY-MM-DD",
-            "time": "HH:MM",
-            "purpose": "...",
-            "urgency_level": "..."
-        }}
-        
-        If any information is not available, leave it as an empty string.
-        """
-        
-        try:
-            response = model.generate_content(prompt)
-        except Exception as generate_error:
-            print(f"Error generating content for appointment extraction: {generate_error}")
-            # Try with a simpler prompt
-            simple_prompt = f"Extract appointment details from: {text}"
-            response = model.generate_content(simple_prompt)
-        
-        # Try to parse the JSON from the response
-        import json
-        import re
-        
-        # Extract JSON from the response text
-        json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
-        if json_match:
-            json_str = json_match.group()
-            details = json.loads(json_str)
-            return details
-        else:
-            return {}
-    except Exception as e:
-        print(f"Error extracting appointment details: {e}")
-        return {}
-
-def book_appointment(details):
-    """Book an appointment in the database"""
-    try:
-        appointment = Appointment(**details)
-        with get_session() as session:
-            session.add(appointment)
-            session.commit()
-            session.refresh(appointment)
-        return appointment
-    except Exception as e:
-        print(f"Error booking appointment: {e}")
-        return None
+@router.get("/voicemail")
+async def voicemail():
+    """Handle voicemail"""
+    resp = VoiceResponse()
+    
+    # Check if Twilio is configured
+    if not twilio_client:
+        resp.say("দুঃখিত, ফোন সার্ভিস এই মুহূর্তে উপলব্ধ নয়।", language="bn-BD", voice="Polly.Odia Female")
+        resp.hangup()
+        return resp
+    
+    resp.say("আপনার কলটি পাওয়া যায়নি। দয়া করে পরে আবার চেষ্টা করুন।", 
+             language="bn-BD", voice="Polly.Odia Female")
+    resp.hangup()
+    return resp

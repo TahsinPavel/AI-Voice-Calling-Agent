@@ -11,6 +11,7 @@ class Appointment(SQLModel, table=True):
     time: str
     purpose: Optional[str] = None
     urgency_level: Optional[str] = "low"
+    doctor_name: Optional[str] = None  # Add doctor name
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -20,4 +21,12 @@ class CallNote(SQLModel, table=True):
     bangla_text: str
     english_text: str
     raw_transcript: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Doctor(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
+    specialty: str
+    availability: str  # JSON string of availability schedule
     created_at: datetime = Field(default_factory=datetime.utcnow)

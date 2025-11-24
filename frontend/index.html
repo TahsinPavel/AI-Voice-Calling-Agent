@@ -18,6 +18,12 @@
 
 <script src="config.js"></script>
 <script>
+// Get WebSocket URL from environment or use default
+const WEBSOCKET_URL = window.WEBSOCKET_URL || 
+  (window.location.hostname.includes('railway.app') 
+    ? `wss://${window.location.host}/ws/ai` 
+    : `ws://${window.location.host}/ws/ai`);
+
 const log = (m) => document.getElementById('log').innerText += '\n' + m;
 let ws;
 let audioContext;
@@ -25,57 +31,54 @@ let audioQueue = [];
 let audioProcessingNode = null;
 
 document.getElementById('start').onclick = async () => {
-  ws = new WebSocket(window.WEBSOCKET_URL);
-  ws.binaryType = 'arraybuffer';
-
-  ws.onopen = async () => {
-    log('WebSocket connection opened');
+  // Use the correct WebSocket URL based on environment
+  const wsUrl = WEBSOCKET_URL.startsWith('ws') ? WEBSOCKET_URL : 
+    (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + WEBSOCKET_URL;
+  
+  console.log('Connecting to WebSocket:', wsUrl);
+  ws = new WebSocket(wsUrl);
+  
+  ws.onopen = () => {
+    log("WebSocket connected");
     document.getElementById('start').disabled = true;
     document.getElementById('stop').disabled = false;
   };
-
-  ws.onmessage = (ev) => {
-    if (typeof ev.data === 'string') {
-      try {
-        const j = JSON.parse(ev.data);
-        if (j.type === 'ai_summary') {
-          log('AI SUMMARY:\n' + JSON.stringify(j.data, null, 2));
-        } else {
-          log('Message: ' + ev.data);
-        }
-      } catch(e) {
-        log('Message: ' + ev.data);
+  
+  ws.onmessage = async (event) => {
+    if (event.data instanceof Blob) {
+      log("Received audio data");
+      // Handle audio data
+      const arrayBuffer = await event.data.arrayBuffer();
+      const audioBlob = new Blob([arrayBuffer], { type: 'audio/mp3' });
+      const audioUrl = URL.createObjectURL(audioBlob);
+      
+      const player = document.getElementById('player');
+      player.src = audioUrl;
+      player.play();
+    } else {
+      log("Message: " + event.data);
+      // Handle text messages
+      if (event.data.startsWith("AI: ")) {
+        log("Playing AI response");
       }
-      return;
     }
-    // binary audio -> play
-    const audioData = ev.data;
-    log('Received audio data: ' + audioData.byteLength + ' bytes');
-    
-    // Create blob and play audio (gTTS generates MP3)
-    const blob = new Blob([audioData], { type: 'audio/mp3' });
-    const url = URL.createObjectURL(blob);
-    
-    // Play the audio
-    const audio = new Audio(url);
-    audio.play()
-      .then(() => log('Playing AI response'))
-      .catch((e) => log('Error playing audio: ' + e.message));
   };
   
   ws.onerror = (error) => {
-    log('WebSocket error: ' + error);
+    log("WebSocket error: " + error);
   };
   
   ws.onclose = () => {
-    log('WebSocket connection closed');
+    log("WebSocket connection closed");
     document.getElementById('start').disabled = false;
     document.getElementById('stop').disabled = true;
   };
 };
 
 document.getElementById('stop').onclick = () => {
-  if (ws) ws.close();
+  if (ws) {
+    ws.close();
+  }
   document.getElementById('start').disabled = false;
   document.getElementById('stop').disabled = true;
 };
@@ -84,19 +87,11 @@ document.getElementById('sendMessage').onclick = () => {
   const messageInput = document.getElementById('messageInput');
   const message = messageInput.value;
   if (message && ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(message);
-    log('Sent: ' + message);
-    messageInput.value = '';
+    ws.send("User: " + message);
+    log("Sent: " + message);
+    messageInput.value = "";
   }
 };
-
-// Allow sending message with Enter key
-document.getElementById('messageInput').addEventListener('keypress', (e) => {
-  if (e.key === 'Enter') {
-    document.getElementById('sendMessage').click();
-  }
-});
 </script>
-
 </body>
 </html>
