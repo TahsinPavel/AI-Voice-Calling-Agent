@@ -23,9 +23,26 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 # Initialize Twilio client
 twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 
-# Initialize Gemini with a more widely available model
+# Configure Gemini with model selection
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.0-pro')
+
+# Try different models in order of preference
+model_names = ['gemini-pro', 'models/gemini-pro', 'gemini-1.0-pro', 'models/gemini-1.0-pro']
+model = None
+
+for model_name in model_names:
+    try:
+        model = genai.GenerativeModel(model_name)
+        # Test the model with a simple prompt
+        test_response = model.generate_content("Hello, test")
+        print(f"Successfully initialized model for phone route: {model_name}")
+        break
+    except Exception as e:
+        print(f"Failed to initialize model {model_name} for phone route: {e}")
+        continue
+
+if model is None:
+    print("Warning: Could not initialize any available Gemini model for phone route")
 
 router = APIRouter()
 
@@ -73,6 +90,11 @@ async def process_speech(request: Request):
     
     # Create TwiML response
     response = VoiceResponse()
+    
+    # Check if model is available
+    if model is None:
+        response.say("দুঃখিত, সিস্টেমে কিছু সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।", language="bn-BD")
+        return str(response)
     
     try:
         # Process the user's request using Gemini
@@ -133,6 +155,10 @@ async def process_speech(request: Request):
 def extract_appointment_details_with_ai(text):
     """Extract appointment details using AI"""
     try:
+        # Check if model is available
+        if model is None:
+            return {}
+            
         prompt = f"""
         Extract the following information from the user's request:
         - Patient name

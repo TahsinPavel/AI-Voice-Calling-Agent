@@ -64,8 +64,25 @@ async def websocket_ai(websocket: WebSocket):
         # Configure Gemini
         genai.configure(api_key=GEMINI_API_KEY)
         
-        # Set up the model (using gemini-1.0-pro which is more widely available)
-        model = genai.GenerativeModel('gemini-1.0-pro')
+        # Try different models in order of preference
+        model_names = ['gemini-pro', 'models/gemini-pro', 'gemini-1.0-pro', 'models/gemini-1.0-pro']
+        model = None
+        
+        for model_name in model_names:
+            try:
+                model = genai.GenerativeModel(model_name)
+                # Test the model with a simple prompt
+                test_response = model.generate_content("Hello, test")
+                print(f"Successfully initialized model: {model_name}")
+                break
+            except Exception as e:
+                print(f"Failed to initialize model {model_name}: {e}")
+                continue
+        
+        if model is None:
+            await websocket.send_text("Error: Could not initialize any available Gemini model")
+            await websocket.close()
+            return
         
         # Initialize conversation history
         conversation_history = [
