@@ -115,7 +115,7 @@ async def voice(request: Request):
     
     # Play welcome message with the previous female voice
     gather.say("হ্যালো! আমি ডেন্টাল চেম্বারের ভয়েস রেসেপশনিস্ট। আপনাকে কিভাবে সাহায্য করতে পারি?", 
-               language="bn-BD", voice="Polly.Odia Female", rate="fast")
+               language="bn-BD", voice="Google.bn-BD-Neural-A", rate="fast")
     
     # If no input received, redirect to voicemail
     resp.redirect("/api/voicemail", method="GET")
