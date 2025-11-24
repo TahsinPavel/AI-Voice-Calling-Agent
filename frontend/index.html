@@ -13,16 +13,10 @@
     <input type="text" id="messageInput" placeholder="Type your message here..." />
     <button id="sendMessage">Send Message</button>
   </div>
-  <div>
-    <label for="speedSelect">Speed:</label>
-    <select id="speedSelect">
-      <option value="normal" selected>Normal</option>
-      <option value="slow">Slow</option>
-    </select>
-  </div>
   <div id="log"></div>
   <audio id="player" controls></audio>
 
+<script src="config.js"></script>
 <script>
 const log = (m) => document.getElementById('log').innerText += '\n' + m;
 let ws;
@@ -31,7 +25,7 @@ let audioQueue = [];
 let audioProcessingNode = null;
 
 document.getElementById('start').onclick = async () => {
-  ws = new WebSocket('ws://localhost:8000/ws/ai');
+  ws = new WebSocket(window.WEBSOCKET_URL);
   ws.binaryType = 'arraybuffer';
 
   ws.onopen = async () => {
@@ -100,14 +94,6 @@ document.getElementById('sendMessage').onclick = () => {
 document.getElementById('messageInput').addEventListener('keypress', (e) => {
   if (e.key === 'Enter') {
     document.getElementById('sendMessage').click();
-  }
-});
-
-// Handle speed change
-document.getElementById('speedSelect').addEventListener('change', function() {
-  const speed = this.value;
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(`/voice speed ${speed}`);
   }
 });
 </script>
