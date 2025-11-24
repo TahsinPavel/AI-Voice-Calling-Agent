@@ -2,6 +2,7 @@ import os
 import re
 import json
 import time
+import logging
 from dotenv import load_dotenv
 from fastapi import APIRouter, Request
 from twilio.twiml.voice_response import VoiceResponse
@@ -11,6 +12,10 @@ from app.utils.ai_prompt import SYSTEM_PROMPT
 from app.models import Appointment, Doctor
 from app.db import get_session
 from sqlmodel import select
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -27,13 +32,13 @@ if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN:
     twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 else:
     twilio_client = None
-    print("Twilio credentials not found. Phone functionality will be disabled.")
+    logger.warning("Twilio credentials not found. Phone functionality will be disabled.")
 
 # Configure Gemini with error handling
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 else:
-    print("Gemini API key not found. AI functionality will be disabled.")
+    logger.warning("Gemini API key not found. AI functionality will be disabled.")
 
 # Try different models in order of preference
 model_names = ['gemini-2.0-flash', 'models/gemini-2.0-flash', 'gemini-flash-latest', 'models/gemini-flash-latest', 'gemini-pro-latest', 'models/gemini-pro-latest']
@@ -45,16 +50,16 @@ if GEMINI_API_KEY:
             model = genai.GenerativeModel(model_name)
             # Test the model with a simple prompt
             test_response = model.generate_content("Hello, this is a test.")
-            print(f"Gemini model {model_name} initialized successfully")
+            logger.info(f"Gemini model {model_name} initialized successfully")
             break
         except Exception as e:
-            print(f"Error initializing Gemini model {model_name}: {e}")
+            logger.warning(f"Error initializing Gemini model {model_name}: {e}")
             continue
 
     if not model:
-        print("Failed to initialize any Gemini model")
+        logger.error("Failed to initialize any Gemini model")
 else:
-    print("Skipping Gemini model initialization due to missing API key")
+    logger.info("Skipping Gemini model initialization due to missing API key")
 
 router = APIRouter()
 
@@ -63,9 +68,10 @@ def get_doctor_list():
     try:
         with get_session() as session:
             doctors = session.exec(select(Doctor)).all()
+            logger.info(f"Retrieved {len(doctors)} doctors from database")
             return doctors
     except Exception as e:
-        print(f"Error fetching doctors: {e}")
+        logger.error(f"Error fetching doctors: {e}")
         return []
 
 def format_doctor_info(doctors):
@@ -86,7 +92,7 @@ async def voice(request: Request):
     from_number = form_data.get("From", "")
     call_sid = form_data.get("CallSid", "")
     
-    print(f"Incoming call from {from_number} with CallSid {call_sid}")
+    logger.info(f"Incoming call from {from_number} with CallSid {call_sid}")
     
     # Create TwiML response
     resp = VoiceResponse()
@@ -113,9 +119,9 @@ async def voice(request: Request):
         language="bn-BD"
     )
     
-    # Play welcome message with the previous female voice
+    # Play welcome message with natural speed
     gather.say("হ্যালো! আমি ডেন্টাল চেম্বারের ভয়েস রেসেপশনিস্ট। আপনাকে কিভাবে সাহায্য করতে পারি?", 
-               language="bn-BD", voice="Google.bn-BD-Neural-A") #, rate="fast"
+               language="bn-BD", voice="Polly.Odia Female")
     
     # If no input received, redirect to voicemail
     resp.redirect("/api/voicemail", method="GET")
@@ -129,7 +135,7 @@ async def process_speech(request: Request):
     speech_result = form_data.get("SpeechResult", "")
     from_number = form_data.get("From", "")
     
-    print(f"Speech result: {speech_result}")
+    logger.info(f"Speech result: {speech_result}")
     
     resp = VoiceResponse()
     
@@ -141,7 +147,7 @@ async def process_speech(request: Request):
     
     if not speech_result:
         resp.say("দুঃখিত, আমি আপনার কথা বুঝতে পারিনি। আবার চেষ্টা করুন।", 
-                 language="bn-BD", voice="Polly.Odia Female", rate="medium")
+                 language="bn-BD", voice="Polly.Odia Female")
         resp.redirect("/api/voice", method="POST")
         return resp
     
@@ -165,7 +171,7 @@ async def process_speech(request: Request):
             # Fallback response if model is not available
             ai_response = "দুঃখিত, আমি এই মুহূর্তে সাহায্য করতে পারছি না। দয়া করে পুনরায় চেষ্টা করুন।"
         
-        print(f"AI Response: {ai_response}")
+        logger.info(f"AI Response: {ai_response}")
         
         # Parse JSON from AI response if present
         appointment_data = None
@@ -184,12 +190,12 @@ async def process_speech(request: Request):
                         session.add(appointment)
                         session.commit()
                         session.refresh(appointment)
-                    print(f"Appointment booked: {appointment_data}")
+                    logger.info(f"Appointment booked: {appointment_data}")
         except Exception as e:
-            print(f"Error parsing appointment data: {e}")
+            logger.error(f"Error parsing appointment data: {e}")
         
-        # Play AI response with the previous female voice
-        resp.say(ai_response, language="bn-BD", voice="Polly.Odia Female", rate="fast")
+        # Play AI response with natural speed
+        resp.say(ai_response, language="bn-BD", voice="Polly.Odia Female")
         
         # Continue conversation
         gather = resp.gather(
@@ -199,12 +205,12 @@ async def process_speech(request: Request):
             timeout=3,
             language="bn-BD"
         )
-        gather.say("আর কিছু জানতে চান?", language="bn-BD", voice="Polly.Odia Female", rate="medium")
+        gather.say("আর কিছু জানতে চান?", language="bn-BD", voice="Polly.Odia Female")
         
     except Exception as e:
-        print(f"Error processing speech: {e}")
+        logger.error(f"Error processing speech: {e}")
         resp.say("দুঃখিত, কিছু সমস্যা হয়েছে। আমরা খুব শীঘ্রই এটি ঠিক করার চেষ্টা করব।", 
-                 language="bn-BD", voice="Polly.Odia Female", rate="medium")
+                 language="bn-BD", voice="Polly.Odia Female")
     
     return resp
 
@@ -220,6 +226,6 @@ async def voicemail():
         return resp
     
     resp.say("আপনার কলটি পাওয়া যায়নি। দয়া করে পরে আবার চেষ্টা করুন।", 
-             language="bn-BD", voice="Polly.Odia Female", rate="medium")
+             language="bn-BD", voice="Polly.Odia Female")
     resp.hangup()
     return resp
