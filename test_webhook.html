@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Webhook Test</title>
+</head>
+<body>
+    <h1>Test Twilio Webhook</h1>
+    <button id="testButton">Test Webhook</button>
+    <div id="result"></div>
+
+    <script>
+        document.getElementById('testButton').onclick = function() {
+            fetch('https://old-pets-juggle.loca.lt/api/voice', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'CallSid=CA1234567890abcdef1234567890abcdef&From=%2B8801234567890&To=%2B12345678901&CallStatus=in-progress'
+            })
+            .then(response => response.text())
+            .then(data => {
+                document.getElementById('result').innerHTML = '<pre>' + data + '</pre>';
+                console.log(data);
+            })
+            .catch(error => {
+                document.getElementById('result').innerHTML = 'Error: ' + error;
+                console.error('Error:', error);
+            });
+        };
+    </script>
+</body>
+</html>

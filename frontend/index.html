@@ -1,0 +1,124 @@
+<!doctype html>
+
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Bangla AI Receptionist — Test</title>
+</head>
+<body>
+  <h2>Bangla AI Receptionist — Test UI</h2>
+  <button id="start">Start</button>
+  <button id="stop" disabled>Stop</button>
+  <div>
+    <input type="text" id="messageInput" placeholder="Type your message here..." />
+    <button id="sendMessage">Send Message</button>
+  </div>
+  <div>
+    <label for="voiceSelect">Voice:</label>
+    <select id="voiceSelect">
+      <option value="0">Voice 1 (Male)</option>
+      <option value="1" selected>Voice 2 (Female)</option>
+      <option value="2">Voice 3</option>
+    </select>
+    <label for="rateSlider">Speed:</label>
+    <input type="range" id="rateSlider" min="100" max="300" value="200">
+    <span id="rateValue">200</span>
+    <label for="volumeSlider">Volume:</label>
+    <input type="range" id="volumeSlider" min="0" max="100" value="100">
+    <span id="volumeValue">100%</span>
+  </div>
+  <div id="log"></div>
+  <audio id="player" controls></audio>
+
+<script>
+const log = (m) => document.getElementById('log').innerText += '\n' + m;
+let ws;
+let audioContext;
+let audioQueue = [];
+let audioProcessingNode = null;
+
+// Update slider value displays
+document.getElementById('rateSlider').addEventListener('input', function() {
+  document.getElementById('rateValue').textContent = this.value;
+});
+
+document.getElementById('volumeSlider').addEventListener('input', function() {
+  document.getElementById('volumeValue').textContent = this.value + '%';
+});
+
+document.getElementById('start').onclick = async () => {
+  ws = new WebSocket('ws://localhost:8000/ws/ai');
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = async () => {
+    log('WebSocket connection opened');
+    document.getElementById('start').disabled = true;
+    document.getElementById('stop').disabled = false;
+  };
+
+  ws.onmessage = (ev) => {
+    if (typeof ev.data === 'string') {
+      try {
+        const j = JSON.parse(ev.data);
+        if (j.type === 'ai_summary') {
+          log('AI SUMMARY:\n' + JSON.stringify(j.data, null, 2));
+        } else {
+          log('Message: ' + ev.data);
+        }
+      } catch(e) {
+        log('Message: ' + ev.data);
+      }
+      return;
+    }
+    // binary audio -> play
+    const audioData = ev.data;
+    log('Received audio data: ' + audioData.byteLength + ' bytes');
+    
+    // Create blob and play audio
+    const blob = new Blob([audioData], { type: 'audio/wav' });
+    const url = URL.createObjectURL(blob);
+    
+    // Play the audio
+    const audio = new Audio(url);
+    audio.play()
+      .then(() => log('Playing AI response'))
+      .catch((e) => log('Error playing audio: ' + e.message));
+  };
+  
+  ws.onerror = (error) => {
+    log('WebSocket error: ' + error);
+  };
+  
+  ws.onclose = () => {
+    log('WebSocket connection closed');
+    document.getElementById('start').disabled = false;
+    document.getElementById('stop').disabled = true;
+  };
+};
+
+document.getElementById('stop').onclick = () => {
+  if (ws) ws.close();
+  document.getElementById('start').disabled = false;
+  document.getElementById('stop').disabled = true;
+};
+
+document.getElementById('sendMessage').onclick = () => {
+  const messageInput = document.getElementById('messageInput');
+  const message = messageInput.value;
+  if (message && ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(message);
+    log('Sent: ' + message);
+    messageInput.value = '';
+  }
+};
+
+// Allow sending message with Enter key
+document.getElementById('messageInput').addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') {
+    document.getElementById('sendMessage').click();
+  }
+});
+</script>
+
+</body>
+</html>
