@@ -14,18 +14,11 @@
     <button id="sendMessage">Send Message</button>
   </div>
   <div>
-    <label for="voiceSelect">Voice:</label>
-    <select id="voiceSelect">
-      <option value="0">Voice 1 (Male)</option>
-      <option value="1" selected>Voice 2 (Female)</option>
-      <option value="2">Voice 3</option>
+    <label for="speedSelect">Speed:</label>
+    <select id="speedSelect">
+      <option value="normal" selected>Normal</option>
+      <option value="slow">Slow</option>
     </select>
-    <label for="rateSlider">Speed:</label>
-    <input type="range" id="rateSlider" min="100" max="300" value="200">
-    <span id="rateValue">200</span>
-    <label for="volumeSlider">Volume:</label>
-    <input type="range" id="volumeSlider" min="0" max="100" value="100">
-    <span id="volumeValue">100%</span>
   </div>
   <div id="log"></div>
   <audio id="player" controls></audio>
@@ -36,15 +29,6 @@ let ws;
 let audioContext;
 let audioQueue = [];
 let audioProcessingNode = null;
-
-// Update slider value displays
-document.getElementById('rateSlider').addEventListener('input', function() {
-  document.getElementById('rateValue').textContent = this.value;
-});
-
-document.getElementById('volumeSlider').addEventListener('input', function() {
-  document.getElementById('volumeValue').textContent = this.value + '%';
-});
 
 document.getElementById('start').onclick = async () => {
   ws = new WebSocket('ws://localhost:8000/ws/ai');
@@ -74,8 +58,8 @@ document.getElementById('start').onclick = async () => {
     const audioData = ev.data;
     log('Received audio data: ' + audioData.byteLength + ' bytes');
     
-    // Create blob and play audio
-    const blob = new Blob([audioData], { type: 'audio/wav' });
+    // Create blob and play audio (gTTS generates MP3)
+    const blob = new Blob([audioData], { type: 'audio/mp3' });
     const url = URL.createObjectURL(blob);
     
     // Play the audio
@@ -116,6 +100,14 @@ document.getElementById('sendMessage').onclick = () => {
 document.getElementById('messageInput').addEventListener('keypress', (e) => {
   if (e.key === 'Enter') {
     document.getElementById('sendMessage').click();
+  }
+});
+
+// Handle speed change
+document.getElementById('speedSelect').addEventListener('change', function() {
+  const speed = this.value;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(`/voice speed ${speed}`);
   }
 });
 </script>

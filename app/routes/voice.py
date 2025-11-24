@@ -3,10 +3,9 @@ import asyncio
 import json
 import base64
 import io
-import wave
-import pyttsx3
 from dotenv import load_dotenv
 import google.generativeai as genai
+from gtts import gTTS
 from app.utils.ai_prompt import SYSTEM_PROMPT
 from app.utils.helpers import safe_parse_json_block
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -18,62 +17,26 @@ print("GEMINI_API_KEY:", GEMINI_API_KEY)
 
 router = APIRouter()
 
-def text_to_speech_bytes(text, voice_id=1, rate=200, volume=1.0):
-    """Convert text to speech and return as bytes"""
-    try:
-        # Initialize the text-to-speech engine
-        engine = pyttsx3.init()
-        
-        # Get available voices
-        voices = engine.getProperty('voices')
-        
-        # Set voice properties
-        if voice_id < len(voices):
-            engine.setProperty('voice', voices[voice_id].id)
-        
-        # Set speech rate (words per minute)
-        engine.setProperty('rate', rate)
-        
-        # Set volume (0.0 to 1.0)
-        engine.setProperty('volume', volume)
-        
-        # Save to BytesIO object as WAV
-        audio_buffer = io.BytesIO()
-        
-        # Create a temporary file to capture the audio
-        temp_file = "temp_speech.wav"
-        engine.save_to_file(text, temp_file)
-        engine.runAndWait()
-        
-        # Read the WAV file
-        with open(temp_file, 'rb') as f:
-            audio_data = f.read()
-        
-        # Clean up temporary file
-        os.remove(temp_file)
-        
-        return audio_data
-        
-    except Exception as e:
-        print(f"Error generating speech: {e}")
-        return None
-
-async def send_text_to_speech(websocket, text, voice_id=1, rate=200, volume=1.0):
+async def send_text_to_speech(websocket, text):
     """Convert text to speech and send as audio data"""
     try:
-        # Generate speech from text using pyttsx3
-        audio_data = text_to_speech_bytes(text, voice_id=voice_id, rate=rate, volume=volume)
+        # Generate speech from text using gTTS
+        tts = gTTS(text=text, lang='bn')  # 'bn' is the language code for Bengali
         
-        if audio_data:
-            # Send the audio data to the client
-            await websocket.send_bytes(audio_data)
-            print(f"Sent audio data: {len(audio_data)} bytes")
-            
-            # Also send the text for display
-            await websocket.send_text(f"AI: {text}")
-        else:
-            # Fallback to text only if speech generation failed
-            await websocket.send_text(f"AI: {text}")
+        # Save to BytesIO object
+        audio_buffer = io.BytesIO()
+        tts.write_to_fp(audio_buffer)
+        audio_buffer.seek(0)
+        
+        # Read the audio data
+        audio_data = audio_buffer.read()
+        
+        # Send the audio data to the client
+        await websocket.send_bytes(audio_data)
+        print(f"Sent audio data: {len(audio_data)} bytes")
+        
+        # Also send the text for display
+        await websocket.send_text(f"AI: {text}")
         
     except Exception as e:
         print(f"Error generating speech: {e}")
@@ -91,11 +54,10 @@ async def websocket_ai(websocket: WebSocket):
         await websocket.close()
         return
         
-    # Default voice settings
+    # Default voice settings (for gTTS, these are limited)
     voice_settings = {
-        "voice_id": 1,
-        "rate": 200,
-        "volume": 1.0
+        "lang": "bn",  # Bengali
+        "slow": False
     }
     
     try:
@@ -113,10 +75,7 @@ async def websocket_ai(websocket: WebSocket):
         
         # Send initial AI response with audio
         initial_response = "হ্যালো! আমি ডেন্টাল চেম্বারের ভয়েস রেসেপশনিস্ট। আপনাকে কিভাবে সাহায্য করতে পারি?"
-        await send_text_to_speech(websocket, initial_response, 
-                                voice_id=voice_settings["voice_id"], 
-                                rate=voice_settings["rate"], 
-                                volume=voice_settings["volume"])
+        await send_text_to_speech(websocket, initial_response)
         print("Initial response sent")
         
         async def process_user_message(message_text):
@@ -128,15 +87,9 @@ async def websocket_ai(websocket: WebSocket):
                     if len(parts) >= 3:
                         setting = parts[1]
                         value = parts[2]
-                        if setting == "voice":
-                            voice_settings["voice_id"] = int(value)
-                            await websocket.send_text(f"Voice changed to {value}")
-                        elif setting == "rate":
-                            voice_settings["rate"] = int(value)
-                            await websocket.send_text(f"Speech rate changed to {value}")
-                        elif setting == "volume":
-                            voice_settings["volume"] = float(value) / 100.0
-                            await websocket.send_text(f"Volume changed to {value}%")
+                        if setting == "speed":
+                            voice_settings["slow"] = (value.lower() == "slow")
+                            await websocket.send_text(f"Speech speed changed to {value}")
                     return
                 
                 # Add user message to conversation history
@@ -149,10 +102,7 @@ async def websocket_ai(websocket: WebSocket):
                 conversation_history.append({"role": "model", "parts": [response.text]})
                 
                 # Send response back to client as audio
-                await send_text_to_speech(websocket, response.text,
-                                        voice_id=voice_settings["voice_id"], 
-                                        rate=voice_settings["rate"], 
-                                        volume=voice_settings["volume"])
+                await send_text_to_speech(websocket, response.text)
                 print(f"AI response sent: {response.text}")
                 
                 # Check if response contains JSON summary data
