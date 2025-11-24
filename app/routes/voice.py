@@ -64,25 +64,31 @@ async def websocket_ai(websocket: WebSocket):
         # Configure Gemini
         genai.configure(api_key=GEMINI_API_KEY)
         
-        # Try different models in order of preference
-        model_names = ['gemini-pro', 'models/gemini-pro', 'gemini-1.0-pro', 'models/gemini-1.0-pro']
-        model = None
-        
-        for model_name in model_names:
+        # Use the default model (let the SDK choose)
+        try:
+            model = genai.GenerativeModel('gemini-pro')
+            # Test the model with a simple prompt
+            test_response = model.generate_content("Hello, test")
+            print("Successfully initialized gemini-pro model")
+        except Exception as e:
+            print(f"Failed to initialize gemini-pro model: {e}")
             try:
-                model = genai.GenerativeModel(model_name)
-                # Test the model with a simple prompt
+                # Fallback to gemini-1.0-pro-latest
+                model = genai.GenerativeModel('gemini-1.0-pro-latest')
                 test_response = model.generate_content("Hello, test")
-                print(f"Successfully initialized model: {model_name}")
-                break
-            except Exception as e:
-                print(f"Failed to initialize model {model_name}: {e}")
-                continue
-        
-        if model is None:
-            await websocket.send_text("Error: Could not initialize any available Gemini model")
-            await websocket.close()
-            return
+                print("Successfully initialized gemini-1.0-pro-latest model")
+            except Exception as e2:
+                print(f"Failed to initialize gemini-1.0-pro-latest model: {e2}")
+                # Try without specifying a model name
+                try:
+                    model = genai.GenerativeModel(model_name="models/gemini-pro")
+                    test_response = model.generate_content("Hello, test")
+                    print("Successfully initialized models/gemini-pro")
+                except Exception as e3:
+                    print(f"Failed to initialize models/gemini-pro: {e3}")
+                    await websocket.send_text("Error: Could not initialize any available Gemini model. Please check your API key and region settings.")
+                    await websocket.close()
+                    return
         
         # Initialize conversation history
         conversation_history = [
@@ -112,8 +118,14 @@ async def websocket_ai(websocket: WebSocket):
                 # Add user message to conversation history
                 conversation_history.append({"role": "user", "parts": [message_text]})
                 
-                # Generate response using Gemini
-                response = model.generate_content(conversation_history)
+                # Generate response using Gemini with error handling
+                try:
+                    response = model.generate_content(conversation_history)
+                except Exception as generate_error:
+                    print(f"Error generating content: {generate_error}")
+                    # Try with a simpler prompt structure
+                    prompt_text = f"{SYSTEM_PROMPT}\n\nUser said: {message_text}\n\nPlease respond in Bengali."
+                    response = model.generate_content(prompt_text)
                 
                 # Add AI response to conversation history
                 conversation_history.append({"role": "model", "parts": [response.text]})

@@ -23,26 +23,33 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 # Initialize Twilio client
 twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 
-# Configure Gemini with model selection
+# Configure Gemini with error handling
 genai.configure(api_key=GEMINI_API_KEY)
 
-# Try different models in order of preference
-model_names = ['gemini-pro', 'models/gemini-pro', 'gemini-1.0-pro', 'models/gemini-1.0-pro']
-model = None
-
-for model_name in model_names:
+# Use the default model (let the SDK choose)
+try:
+    model = genai.GenerativeModel('gemini-pro')
+    # Test the model with a simple prompt
+    test_response = model.generate_content("Hello, test")
+    print("Successfully initialized gemini-pro model for phone route")
+except Exception as e:
+    print(f"Failed to initialize gemini-pro model for phone route: {e}")
     try:
-        model = genai.GenerativeModel(model_name)
-        # Test the model with a simple prompt
+        # Fallback to gemini-1.0-pro-latest
+        model = genai.GenerativeModel('gemini-1.0-pro-latest')
         test_response = model.generate_content("Hello, test")
-        print(f"Successfully initialized model for phone route: {model_name}")
-        break
-    except Exception as e:
-        print(f"Failed to initialize model {model_name} for phone route: {e}")
-        continue
-
-if model is None:
-    print("Warning: Could not initialize any available Gemini model for phone route")
+        print("Successfully initialized gemini-1.0-pro-latest model for phone route")
+    except Exception as e2:
+        print(f"Failed to initialize gemini-1.0-pro-latest model for phone route: {e2}")
+        # Try without specifying a model name
+        try:
+            model = genai.GenerativeModel(model_name="models/gemini-pro")
+            test_response = model.generate_content("Hello, test")
+            print("Successfully initialized models/gemini-pro for phone route")
+        except Exception as e3:
+            print(f"Failed to initialize models/gemini-pro for phone route: {e3}")
+            model = None
+            print("Warning: Could not initialize any available Gemini model for phone route")
 
 router = APIRouter()
 
@@ -97,9 +104,16 @@ async def process_speech(request: Request):
         return str(response)
     
     try:
-        # Process the user's request using Gemini
+        # Process the user's request using Gemini with error handling
         prompt = f"{SYSTEM_PROMPT}\n\nUser said: {speech_result}\n\nPlease respond in Bengali and help the user with their request. If this is an appointment request, extract the relevant details."
-        gemini_response = model.generate_content(prompt)
+        
+        try:
+            gemini_response = model.generate_content(prompt)
+        except Exception as generate_error:
+            print(f"Error generating content: {generate_error}")
+            # Try with a simpler prompt structure
+            simple_prompt = f"User said: {speech_result}\n\nPlease respond in Bengali."
+            gemini_response = model.generate_content(simple_prompt)
         
         # Check if this is an appointment request
         if any(keyword in speech_result.lower() for keyword in ["appointment", "booking", "book", "schedule", "অ্যাপয়েন্টমেন্ট", "বুক", "বুকিং"]):
@@ -183,7 +197,13 @@ def extract_appointment_details_with_ai(text):
         If any information is not available, leave it as an empty string.
         """
         
-        response = model.generate_content(prompt)
+        try:
+            response = model.generate_content(prompt)
+        except Exception as generate_error:
+            print(f"Error generating content for appointment extraction: {generate_error}")
+            # Try with a simpler prompt
+            simple_prompt = f"Extract appointment details from: {text}"
+            response = model.generate_content(simple_prompt)
         
         # Try to parse the JSON from the response
         import json
