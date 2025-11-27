@@ -194,8 +194,28 @@ async def process_speech(request: Request):
         except Exception as e:
             logger.error(f"Error parsing appointment data: {e}")
         
+        # Extract the text message (remove JSON part if present)
+        display_text = ai_response
+        if appointment_data is not None:
+            # Remove JSON part from the display text
+            json_start = ai_response.find('{')
+            if json_start != -1:
+                json_end = ai_response.rfind('}') + 1
+                if json_end > json_start:
+                    # Remove JSON block from the response
+                    before_json = ai_response[:json_start].strip()
+                    after_json = ai_response[json_end:].strip()
+                    display_text = (before_json + " " + after_json).strip()
+                    # If both parts are empty, just use a generic response
+                    if not display_text:
+                        display_text = "চমৎকার! আপনার অ্যাপয়েন্টমেন্ট নিশ্চিত করা হয়েছে।"
+                    # Ensure we don't speak just whitespace or newlines
+                    display_text = display_text.strip()
+                    if not display_text:
+                        display_text = "চমৎকার! আপনার অ্যাপয়েন্টমেন্ট নিশ্চিত করা হয়েছে।"
+        
         # Play AI response with natural speed
-        resp.say(ai_response, language="bn-BD", voice="Polly.Odia Female")
+        resp.say(display_text, language="bn-BD", voice="Polly.Odia Female")
         
         # Continue conversation
         gather = resp.gather(

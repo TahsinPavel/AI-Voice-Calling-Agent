@@ -202,15 +202,44 @@ async def websocket_ai(websocket: WebSocket):
                     # Check if there's appointment data in the response
                     appointment_data = safe_parse_json_block(ai_response)
                     
-                    if appointment_data and "appointment_data" in appointment_data:
-                        # Send appointment confirmation with natural speed
-                        appt_data = appointment_data["appointment_data"]
-                        if appt_data:
-                            confirmation = f"আপনার অ্যাপয়েন্টমেন্ট নিশ্চিত করা হয়েছে। ডাক্তার: {appt_data.get('doctor_name', 'Not specified')}, তারিখ: {appt_data.get('date')}, সময়: {appt_data.get('time')}"
-                            await send_text_to_speech(websocket, confirmation, speed=1.0)
+                    # Extract the text message (remove JSON part if present)
+                    display_text = ai_response
+                    if appointment_data is not None:
+                        # Remove JSON part from the display text
+                        json_start = ai_response.find('{')
+                        if json_start != -1:
+                            json_end = ai_response.rfind('}') + 1
+                            if json_end > json_start:
+                                # Remove JSON block from the response
+                                before_json = ai_response[:json_start].strip()
+                                after_json = ai_response[json_end:].strip()
+                                display_text = (before_json + " " + after_json).strip()
+                                # If both parts are empty, just use a generic response
+                                if not display_text:
+                                    display_text = "চমৎকার! আপনার অ্যাপয়েন্টমেন্ট নিশ্চিত করা হয়েছে।"
+                                # Ensure we don't speak just whitespace or newlines
+                                display_text = display_text.strip()
+                                if not display_text:
+                                    display_text = "চমৎকার! আপনার অ্যাপয়েন্টমেন্ট নিশ্চিত করা হয়েছে।"
                     
                     # Send AI response with natural speed
-                    await send_text_to_speech(websocket, ai_response, speed=1.0)
+                    if display_text:
+                        await send_text_to_speech(websocket, display_text, speed=1.0)
+                    
+                    # If we have appointment data, save it to database
+                    if appointment_data and "appointment_data" in appointment_data:
+                        appt_data = appointment_data["appointment_data"]
+                        if appt_data:
+                            # Save appointment to database
+                            try:
+                                with get_session() as session:
+                                    appointment = Appointment(**appt_data)
+                                    session.add(appointment)
+                                    session.commit()
+                                    session.refresh(appointment)
+                                logger.info(f"Appointment booked: {appt_data}")
+                            except Exception as e:
+                                logger.error(f"Error saving appointment: {e}")
                     
                 except Exception as e:
                     error_msg = f"Error processing message: {str(e)}"
