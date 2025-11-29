@@ -45,23 +45,17 @@ PORT=8000
 
 1. Build the Docker image:
    ```
-   docker build -t bangla-ai-receptionist .
+   docker build -t american-dental-ai-receptionist .
    ```
 
 2. Run the container:
    ```
-   docker run -p 8000:8000 -e GEMINI_API_KEY=your_key bangla-ai-receptionist
+   docker run -p 8000:8000 -e GEMINI_API_KEY=your_key american-dental-ai-receptionist
    ```
 
 ## Database Initialization
 
-When deploying to production, make sure to run the doctor initialization script:
-
-```bash
-python init_doctors.py
-```
-
-This will populate the database with the initial set of doctors.
+When deploying to production, the application will automatically seed the database with the initial set of American doctors.
 
 ## SSL Configuration
 

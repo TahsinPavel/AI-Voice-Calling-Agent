@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 
-app = FastAPI(title="Bangla AI Receptionist", docs_url="/docs", redoc_url="/redoc")
+app = FastAPI(title="American Dental Clinic AI Receptionist", docs_url="/docs", redoc_url="/redoc")
 
 
 # Add CORS middleware for production
@@ -38,6 +38,13 @@ app.include_router(phone.router, prefix="/api")
 from app.db import init_db
 init_db()
 
+# Seed doctors data
+try:
+    from seed_doctors import seed_doctors
+    seed_doctors()
+except Exception as e:
+    logger.warning(f"Failed to seed doctors: {e}")
+
 
 # Serve frontend for testing
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
@@ -45,7 +52,7 @@ app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 @app.get("/")
 async def home():
-    return {"status":"ok", "message":"Bangla AI Receptionist: visit /static/index.html"}
+    return {"status":"ok", "message":"American Dental Clinic AI Receptionist: visit /static/index.html"}
 
 
 @app.get("/health")

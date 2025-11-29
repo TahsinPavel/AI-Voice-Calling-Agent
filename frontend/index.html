@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Bangla AI Receptionist</title>
+  <title>American Dental Clinic AI Receptionist</title>
   <style>
     body {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -161,7 +161,7 @@
 </head>
 <body>
   <div class="container">
-    <h1>🦷 Bangla AI Receptionist</h1>
+    <h1>🦷 American Dental Clinic AI Receptionist</h1>
     
     <div class="controls">
       <button id="start">🎙️ Start Connection</button>
@@ -169,7 +169,7 @@
     </div>
     
     <div class="message-input">
-      <input type="text" id="messageInput" placeholder="Type your message here... (e.g. 'I want to book an appointment with Dr. Firoz')" />
+      <input type="text" id="messageInput" placeholder="Type your message here... (e.g. 'I want to book an appointment with Dr. Smith')" />
       <button id="sendMessage">📤 Send Message</button>
     </div>
     
@@ -178,7 +178,7 @@
     </div>
     
     <h2>💬 Conversation Log</h2>
-    <div id="log">Welcome to the Bangla AI Receptionist system!</div>
+    <div id="log">Welcome to the American Dental Clinic AI Receptionist system!</div>
     
     <h2>🎧 Audio Player</h2>
     <audio id="player" controls></audio>
@@ -277,7 +277,47 @@ document.getElementById('start').onclick = async () => {
           log("Error parsing doctor information: " + e.message);
         }
       } else if (event.data.startsWith("AI: ")) {
-        log(event.data);
+        // Filter out JSON content from AI responses
+        let displayText = event.data;
+        
+        // Remove various JSON code block patterns with multiple backticks
+        while (displayText.includes("``")) {
+          const firstTripleIndex = displayText.indexOf("```");
+          if (firstTripleIndex !== -1) {
+            // Find the end of the code block
+            let endIndex = displayText.indexOf("```", firstTripleIndex + 3);
+            if (endIndex !== -1) {
+              // Remove the entire code block
+              displayText = displayText.substring(0, firstTripleIndex) + displayText.substring(endIndex + 3);
+            } else {
+              // If no closing ```, break to avoid infinite loop
+              break;
+            }
+          } else {
+            // No more ``` patterns, break
+            break;
+          }
+        }
+        
+        // Remove standalone JSON objects { ... }
+        const jsonStart = displayText.indexOf('{');
+        const jsonEnd = displayText.lastIndexOf('}');
+        
+        if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+          const beforeJson = displayText.substring(0, jsonStart).trim();
+          const afterJson = displayText.substring(jsonEnd + 1).trim();
+          displayText = (beforeJson + " " + afterJson).trim();
+        }
+        
+        // Final cleanup
+        displayText = displayText.replace(/\s+/g, ' ').trim();
+        
+        // Fallback for empty or nearly empty responses
+        if (!displayText || displayText.length < 10 || displayText.trim() === "AI:") {
+          displayText = "AI: Great! Your appointment has been confirmed.";
+        }
+        
+        log(displayText);
         log("🔊 Playing AI response");
       } else {
         log("Message: " + event.data);

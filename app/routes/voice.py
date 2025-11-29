@@ -5,10 +5,13 @@ import base64
 import io
 import time
 import logging
+import warnings
+from functools import lru_cache
 from dotenv import load_dotenv
 import google.generativeai as genai
 from gtts import gTTS
 from pydub import AudioSegment
+from pydub.utils import which
 from app.utils.ai_prompt import SYSTEM_PROMPT
 from app.utils.helpers import safe_parse_json_block
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -54,8 +57,9 @@ else:
 
 router = APIRouter()
 
-def get_doctor_list():
-    """Get list of doctors from database"""
+@lru_cache(maxsize=1)
+def get_cached_doctor_list():
+    """Get list of doctors from database with caching"""
     try:
         with get_session() as session:
             doctors = session.exec(select(Doctor)).all()
@@ -64,6 +68,10 @@ def get_doctor_list():
     except Exception as e:
         logger.error(f"Error fetching doctors: {e}")
         return []
+
+def get_doctor_list():
+    """Get list of doctors from database"""
+    return get_cached_doctor_list()
 
 def format_doctor_info(doctors):
     """Format doctor information for the AI prompt"""
@@ -92,28 +100,38 @@ def get_doctor_info_json(doctors):
 def change_audio_speed(audio_data, speed=1.0):
     """Change the speed of audio data"""
     try:
-        # Load audio from bytes
-        audio = AudioSegment.from_mp3(io.BytesIO(audio_data))
-        
-        # Change speed by adjusting frame rate
-        # Higher frame rate = faster playback
-        new_sample_rate = int(audio.frame_rate * speed)
-        audio_fast = audio._spawn(audio.raw_data, overrides={"frame_rate": new_sample_rate})
-        audio_fast = audio_fast.set_frame_rate(audio.frame_rate)
-        
-        # Convert back to bytes
-        buffer = io.BytesIO()
-        audio_fast.export(buffer, format="mp3")
-        return buffer.getvalue()
+        # Suppress pydub warnings about missing ffmpeg
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            
+            # Check if ffmpeg is available
+            if which("ffmpeg") is None and which("avconv") is None:
+                logger.warning("ffmpeg/avconv not found. Audio speed adjustment will be skipped.")
+                return audio_data
+            
+            # Load audio from bytes
+            audio = AudioSegment.from_mp3(io.BytesIO(audio_data))
+            
+            # Change speed by adjusting frame rate
+            # Higher frame rate = faster playback
+            new_sample_rate = int(audio.frame_rate * speed)
+            audio_fast = audio._spawn(audio.raw_data, overrides={"frame_rate": new_sample_rate})
+            audio_fast = audio_fast.set_frame_rate(audio.frame_rate)
+            
+            # Convert back to bytes
+            buffer = io.BytesIO()
+            audio_fast.export(buffer, format="mp3")
+            return buffer.getvalue()
     except Exception as e:
-        logger.error(f"Error changing audio speed: {e}")
-        return audio_data  # Return original if error
+        logger.warning(f"Error changing audio speed: {e}. Returning original audio.")
+        # Return original audio if we can't change speed
+        return audio_data  
 
 async def send_text_to_speech(websocket, text, speed=1.0):
     """Convert text to speech and send as audio data"""
     try:
         # Generate speech from text using gTTS
-        tts = gTTS(text=text, lang='bn')  # 'bn' is the language code for Bengali
+        tts = gTTS(text=text, lang='en')  
         
         # Save to BytesIO object
         audio_buffer = io.BytesIO()
@@ -123,9 +141,14 @@ async def send_text_to_speech(websocket, text, speed=1.0):
         # Read the audio data
         audio_data = audio_buffer.read()
         
-        # Change speed if needed
+        # Change speed if needed and if not using default speed
         if speed != 1.0:
+            original_size = len(audio_data)
             audio_data = change_audio_speed(audio_data, speed)
+            if len(audio_data) == original_size:
+                logger.info("Audio speed adjustment was skipped (ffmpeg not available)")
+            else:
+                logger.info("Audio speed adjusted successfully")
         
         # Send the audio data to the client
         await websocket.send_bytes(audio_data)
@@ -139,7 +162,7 @@ async def send_text_to_speech(websocket, text, speed=1.0):
 
 @router.websocket("/ws/ai")
 async def websocket_ai(websocket: WebSocket):
-    """Handle WebSocket connections for AI interaction"""
+
     await websocket.accept()
     logger.info("WebSocket connection accepted")
     
@@ -160,11 +183,11 @@ async def websocket_ai(websocket: WebSocket):
     # Initialize conversation history
     conversation_history = [
         {"role": "user", "parts": [enhanced_system_prompt]},
-        {"role": "model", "parts": ["I understand. I'm ready to help as a Bangla-speaking dental receptionist."]}
+        {"role": "model", "parts": ["I understand. I'm ready to help as a dental receptionist."]}
     ]
     
-    # Send welcome message with natural speed
-    welcome_message = "হ্যালো! আমি ডেন্টাল চেম্বারের ভয়েস রেসেপশনিস্ট। আপনাকে কিভাবে সাহায্য করতে পারি?"
+    # Send welcome message with natural speed (fallback when ffmpeg is not available)
+    welcome_message = "Hello! I'm the dental clinic's voice receptionist. How can I help you today?"
     await send_text_to_speech(websocket, welcome_message, speed=1.0)
     
     # Send doctor information to frontend
@@ -177,6 +200,9 @@ async def websocket_ai(websocket: WebSocket):
             logger.info(f"Received: {data}")
             
             if data.startswith("User: "):
+                # Send immediate acknowledgment
+                await websocket.send_text("AI: I've received your message and am processing it now...")
+                
                 user_message = data[6:]  # Remove "User: " prefix
                 
                 # Add user message to conversation history
@@ -185,14 +211,18 @@ async def websocket_ai(websocket: WebSocket):
                 try:
                     # Generate response using Gemini
                     if model:
-                        # Add a small delay to help with rate limiting
-                        time.sleep(1)
+                        # Send immediate acknowledgment to show we're processing the request
+                        await websocket.send_text("AI: I'm processing your request, please wait...")
+                        
+                        # Reduce delay to help with rate limiting while improving response time
+                        time.sleep(0.1)  # Reduced from 1 second to 0.1 second
+                        
                         chat = model.start_chat(history=conversation_history)
                         response = chat.send_message(user_message)
                         ai_response = response.text
                     else:
                         # Fallback response if model is not available
-                        ai_response = "দুঃখিত, আমি এই মুহূর্তে সাহায্য করতে পারছি না। দয়া করে পুনরায় চেষ্টা করুন।"
+                        ai_response = "Sorry, I'm unable to help at the moment. Please try again."
                     
                     logger.info(f"AI Response: {ai_response}")
                     
@@ -216,13 +246,31 @@ async def websocket_ai(websocket: WebSocket):
                                 display_text = (before_json + " " + after_json).strip()
                                 # If both parts are empty, just use a generic response
                                 if not display_text:
-                                    display_text = "চমৎকার! আপনার অ্যাপয়েন্টমেন্ট নিশ্চিত করা হয়েছে।"
+                                    display_text = "Great! Your appointment has been confirmed."
                                 # Ensure we don't speak just whitespace or newlines
                                 display_text = display_text.strip()
                                 if not display_text:
-                                    display_text = "চমৎকার! আপনার অ্যাপয়েন্টমেন্ট নিশ্চিত করা হয়েছে।"
+                                    display_text = "Great! Your appointment has been confirmed."
                     
-                    # Send AI response with natural speed
+                    # Additional cleanup to remove any JSON code blocks with backticks
+                    while '```' in display_text:
+                        first_index = display_text.find('```')
+                        if first_index != -1:
+                            last_index = display_text.find('```', first_index + 3)
+                            if last_index != -1:
+                                display_text = display_text[:first_index] + display_text[last_index + 3:]
+                            else:
+                                break
+                        else:
+                            break
+                    
+                    # Remove any remaining backticks
+                    display_text = display_text.replace('```', '').strip()
+                    
+                    # Log the display text for debugging
+                    logger.info(f"Display text: {display_text}")
+                    
+                    # Send AI response with natural speed (fallback when ffmpeg is not available)
                     if display_text:
                         await send_text_to_speech(websocket, display_text, speed=1.0)
                     
@@ -245,8 +293,8 @@ async def websocket_ai(websocket: WebSocket):
                     error_msg = f"Error processing message: {str(e)}"
                     logger.error(error_msg)
                     await websocket.send_text(error_msg)
-                    # Send error message to user with natural speed
-                    await send_text_to_speech(websocket, "দুঃখিত, আমি এই মুহূর্তে সাহায্য করতে পারছি না। দয়া করে পুনরায় চেষ্টা করুন।", speed=1.0)
+                    # Send error message to user with natural speed (fallback when ffmpeg is not available)
+                    await send_text_to_speech(websocket, "Sorry, I'm unable to help at the moment. Please try again.", speed=1.0)
             
     except WebSocketDisconnect:
         logger.info("WebSocket connection closed")

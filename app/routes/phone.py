@@ -3,6 +3,7 @@ import re
 import json
 import time
 import logging
+from functools import lru_cache
 from dotenv import load_dotenv
 from fastapi import APIRouter, Request
 from twilio.twiml.voice_response import VoiceResponse
@@ -63,8 +64,9 @@ else:
 
 router = APIRouter()
 
-def get_doctor_list():
-    """Get list of doctors from database"""
+@lru_cache(maxsize=1)
+def get_cached_doctor_list():
+    """Get list of doctors from database with caching"""
     try:
         with get_session() as session:
             doctors = session.exec(select(Doctor)).all()
@@ -73,6 +75,10 @@ def get_doctor_list():
     except Exception as e:
         logger.error(f"Error fetching doctors: {e}")
         return []
+
+def get_doctor_list():
+    """Get list of doctors from database"""
+    return get_cached_doctor_list()
 
 def format_doctor_info(doctors):
     """Format doctor information for the AI prompt"""
@@ -99,7 +105,7 @@ async def voice(request: Request):
     
     # Check if Twilio is configured
     if not twilio_client:
-        resp.say("দুঃখিত, ফোন সার্ভিস এই মুহূর্তে উপলব্ধ নয়।", language="bn-BD", voice="Polly.Odia Female")
+        resp.say("Sorry, phone service is currently unavailable.", language="en-US", voice="Polly.Joanna")
         resp.hangup()
         return resp
     
@@ -116,12 +122,12 @@ async def voice(request: Request):
         action="/api/process_speech",
         method="POST",
         timeout=3,
-        language="bn-BD"
+        language="en-US"
     )
     
     # Play welcome message with natural speed
-    gather.say("হ্যালো! আমি ডেন্টাল চেম্বারের ভয়েস রেসেপশনিস্ট। আপনাকে কিভাবে সাহায্য করতে পারি?", 
-               language="bn-BD", voice="Polly.Odia Female")
+    gather.say("Hello! I'm the dental clinic's voice receptionist. How can I help you today?", 
+               language="en-US", voice="Polly.Joanna")
     
     # If no input received, redirect to voicemail
     resp.redirect("/api/voicemail", method="GET")
@@ -141,13 +147,13 @@ async def process_speech(request: Request):
     
     # Check if Twilio is configured
     if not twilio_client:
-        resp.say("দুঃখিত, ফোন সার্ভিস এই মুহূর্তে উপলব্ধ নয়।", language="bn-BD", voice="Polly.Odia Female")
+        resp.say("Sorry, phone service is currently unavailable.", language="en-US", voice="Polly.Odia Female")
         resp.hangup()
         return resp
     
     if not speech_result:
-        resp.say("দুঃখিত, আমি আপনার কথা বুঝতে পারিনি। আবার চেষ্টা করুন।", 
-                 language="bn-BD", voice="Polly.Odia Female")
+        resp.say("Sorry, I didn't understand what you said. Please try again.", 
+                 language="en-US", voice="Polly.Joanna")
         resp.redirect("/api/voice", method="POST")
         return resp
     
@@ -160,16 +166,20 @@ async def process_speech(request: Request):
     
     try:
         # Process the speech with Gemini AI
-        full_prompt = f"{enhanced_system_prompt}\n\nCaller said: {speech_result}\n\nRespond appropriately in Bangla."
+        full_prompt = f"{enhanced_system_prompt}\n\nCaller said: {speech_result}\n\nRespond appropriately in English."
         
         if model:
-            # Add a small delay to help with rate limiting
-            time.sleep(1)
+            # Send immediate acknowledgment to show we're processing the request
+            resp.say("I'm processing your request, please wait...", language="en-US", voice="Polly.Joanna")
+            
+            # Reduce delay to help with rate limiting while improving response time
+            time.sleep(0.1)  # Reduced from 1 second to 0.1 second
+            
             response = model.generate_content(full_prompt)
             ai_response = response.text
         else:
             # Fallback response if model is not available
-            ai_response = "দুঃখিত, আমি এই মুহূর্তে সাহায্য করতে পারছি না। দয়া করে পুনরায় চেষ্টা করুন।"
+            ai_response = "Sorry, I'm unable to help at the moment. Please try again."
         
         logger.info(f"AI Response: {ai_response}")
         
@@ -208,14 +218,32 @@ async def process_speech(request: Request):
                     display_text = (before_json + " " + after_json).strip()
                     # If both parts are empty, just use a generic response
                     if not display_text:
-                        display_text = "চমৎকার! আপনার অ্যাপয়েন্টমেন্ট নিশ্চিত করা হয়েছে।"
+                        display_text = "Great! Your appointment has been confirmed."
                     # Ensure we don't speak just whitespace or newlines
                     display_text = display_text.strip()
                     if not display_text:
-                        display_text = "চমৎকার! আপনার অ্যাপয়েন্টমেন্ট নিশ্চিত করা হয়েছে।"
+                        display_text = "Great! Your appointment has been confirmed."
         
-        # Play AI response with natural speed
-        resp.say(display_text, language="bn-BD", voice="Polly.Odia Female")
+        # Additional cleanup to remove any JSON code blocks with backticks
+        while '```' in display_text:
+            first_index = display_text.find('```')
+            if first_index != -1:
+                last_index = display_text.find('```', first_index + 3)
+                if last_index != -1:
+                    display_text = display_text[:first_index] + display_text[last_index + 3:]
+                else:
+                    break
+            else:
+                break
+        
+        # Remove any remaining backticks
+        display_text = display_text.replace('```', '').strip()
+        
+        # Log the display text for debugging
+        logger.info(f"Display text: {display_text}")
+        
+        # Play AI response with natural speed (fallback when ffmpeg is not available)
+        resp.say(display_text, language="en-US", voice="Polly.Joanna")
         
         # Continue conversation
         gather = resp.gather(
@@ -223,14 +251,14 @@ async def process_speech(request: Request):
             action="/api/process_speech",
             method="POST",
             timeout=3,
-            language="bn-BD"
+            language="en-US"
         )
-        gather.say("আর কিছু জানতে চান?", language="bn-BD", voice="Polly.Odia Female")
+        gather.say("Is there anything else I can help you with?", language="en-US", voice="Polly.Joanna")
         
     except Exception as e:
         logger.error(f"Error processing speech: {e}")
-        resp.say("দুঃখিত, কিছু সমস্যা হয়েছে। আমরা খুব শীঘ্রই এটি ঠিক করার চেষ্টা করব।", 
-                 language="bn-BD", voice="Polly.Odia Female")
+        resp.say("Sorry, there was an issue. We'll try to fix it soon.", 
+                 language="en-US", voice="Polly.Joanna")
     
     return resp
 
@@ -241,11 +269,11 @@ async def voicemail():
     
     # Check if Twilio is configured
     if not twilio_client:
-        resp.say("দুঃখিত, ফোন সার্ভিস এই মুহূর্তে উপলব্ধ নয়।", language="bn-BD", voice="Polly.Odia Female")
+        resp.say("Sorry, phone service is currently unavailable.", language="en-US", voice="Polly.Joanna")
         resp.hangup()
         return resp
     
-    resp.say("আপনার কলটি পাওয়া যায়নি। দয়া করে পরে আবার চেষ্টা করুন।", 
-             language="bn-BD", voice="Polly.Odia Female")
+    resp.say("We couldn't connect your call. Please try again later.", 
+             language="en-US", voice="Polly.Joanna")
     resp.hangup()
     return resp

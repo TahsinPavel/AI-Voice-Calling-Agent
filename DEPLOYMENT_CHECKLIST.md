@@ -12,7 +12,7 @@
 - [ ] `PORT` is set for custom port (optional, defaults to 8000)
 
 ### 2. Database
-- [ ] Doctors are loaded in the database
+- [ ] Doctors are automatically seeded when the application starts
 - [ ] Database file is writable
 - [ ] Database migrations are up to date
 
@@ -41,14 +41,14 @@
 3. [ ] Deploy and monitor logs
 
 ### Docker Deployment
-1. [ ] Build Docker image: `docker build -t bangla-ai-receptionist .`
-2. [ ] Run container: `docker run -p 8000:8000 -e GEMINI_API_KEY=your_key bangla-ai-receptionist`
+1. [ ] Build Docker image: `docker build -t american-dental-ai-receptionist .`
+2. [ ] Run container: `docker run -p 8000:8000 -e GEMINI_API_KEY=your_key american-dental-ai-receptionist`
 3. [ ] Ensure environment variables are passed correctly
 
 ## Post-deployment Verification
 
 ### 1. Health Check
-- [ ] Visit `/health` endpoint - should return `{"status": "healthy", "timestamp": "..."}`
+- [ ] Visit `/health` endpoint - should return `{"status": "healthy", "timestamp": "..."}` 
 - [ ] Visit root endpoint `/` - should return welcome message
 
 ### 2. WebSocket Connection
@@ -60,18 +60,18 @@
 
 ### 3. Voice Functionality
 - [ ] Verify audio plays correctly in browser
-- [ ] Verify text-to-speech conversion works
+- [ ] Verify text-to-speech conversion works in English
 - [ ] Verify natural voice speed
 
 ### 4. Doctor Information
-- [ ] Verify 4 doctors are displayed in the doctor list
+- [ ] Verify 4 American doctors are displayed in the doctor list
 - [ ] Verify doctor information is correctly formatted
 - [ ] Verify doctors can be referenced in conversations
 
 ### 5. Appointment Booking
 - [ ] Test booking an appointment with a specific doctor
 - [ ] Verify appointment data is saved to database
-- [ ] Verify confirmation message is played
+- [ ] Verify confirmation message is played in English
 
 ## Troubleshooting
 
